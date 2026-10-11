@@ -1,0 +1,9 @@
+{
+ "mainAccountFile":"july_main_account_recon.xlsx",
+ "smwFile":"smw_data.xlsx",
+  "pdfFiles": ["CT_ID_Same_Legal_Entity_U101.pdf"],
+ //"pdfFiles":["PDF_01_US_States.pdf","PDF_02_US_States.pdf","PDF_03_US_States.pdf","PDF_04_US_States.pdf","PDF_05_US_States.pdf","PDF_06_US_States.pdf","PDF_07_US_States.pdf","PDF_08_US_States.pdf","PDF_09_US_States.pdf"],
+ "states":["ID","CT"],
+ "period":"July 2026",
+ "requestedBy":"local-test"
+}
