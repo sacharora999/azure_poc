@@ -39,3 +39,33 @@ Deploy the **app/** directory as the Function App project root with VS Code Azur
  "requestedBy":"local-test"
 }
 
+```powerfx
+Set(
+    varWorkflowResult,
+    SodexoWF.Run(
+        cmbMainAccountFile_1.Selected.Path,
+        cmbIdSampleFile_1.Selected.Path,
+        JSON(
+            ForAll(
+                cmbPdfFiles_1.SelectedItems,
+                { FileName: ThisRecord.Name }
+            ),
+            JSONFormat.Compact
+        ),
+        JSON(
+            ForAll(
+                cmbStates_1.SelectedItems,
+                { StateValue: ThisRecord.Value }
+            ),
+            JSONFormat.Compact
+        ),
+        drpMonth_1.Selected.Value & " " & drpYear_1.Selected.Value,
+        txtRequestedBy_1.Text
+    )
+);
+
+Notify(
+    "Sodexo workflow started successfully.",
+    NotificationType.Success
+);
+```
