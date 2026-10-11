@@ -1,0 +1,27 @@
+# Azure Portal test setup — password/key authentication
+
+This variant requires **no Function App managed-identity role assignments**.
+
+## 1. PostgreSQL Flexible Server
+Enable PostgreSQL password authentication (PostgreSQL only or Both) under Authentication. Create `state_recon` database, apply `sql/schema.sql` using a privileged administrator, and create a least-privilege app user. The app user needs CONNECT, USAGE on schema, and SELECT/INSERT/UPDATE/DELETE on the reconciliation tables. Ensure Function App outbound networking can reach PostgreSQL TCP 5432.
+
+## 2. Document Intelligence
+Enable local/key authentication. Copy resource endpoint and Key 1 from Keys and Endpoint. Set `DOCUMENT_INTELLIGENCE_ENDPOINT` and `DOCUMENT_INTELLIGENCE_KEY`. Model is `prebuilt-layout`. Ensure the Function App can reach the endpoint.
+
+## 3. Storage
+Create `input-recon`, `recon-work`, `output-recon`. Set `RECON_STORAGE_CONNECTION_STRING` to the storage account connection string. Set `AzureWebJobsStorage` to the same or another accessible storage account connection string (NOT `UseDevelopmentStorage=true` in Azure).
+
+## 4. Function App environment variables
+Required: `FUNCTIONS_WORKER_RUNTIME=python`, `AzureWebJobsStorage`, `RECON_STORAGE_CONNECTION_STRING`, `RECON_INPUT_CONTAINER=input-recon`, `RECON_WORK_CONTAINER=recon-work`, `RECON_OUTPUT_CONTAINER=output-recon`, `DOCUMENT_INTELLIGENCE_ENDPOINT`, `DOCUMENT_INTELLIGENCE_KEY`, `POSTGRES_HOST`, `POSTGRES_DB=state_recon`, `POSTGRES_USER`, `POSTGRES_PASSWORD`. Optional: `POSTGRES_PORT=5432`, `POSTGRES_BATCH_SIZE=1000`, `DI_MAX_CONCURRENCY=5`, `PDF_CHUNK_PAGES=200`, `DOCUMENT_INTELLIGENCE_API_VERSION=2024-11-30`, `DOCUMENT_INTELLIGENCE_MODEL=prebuilt-layout`.
+
+Use Azure Portal > Function App > Settings > Environment variables (or Configuration). Mark secrets as deployment slot settings where applicable; for production prefer Key Vault references and secret rotation. Restart after saving.
+
+## 5. Deploy
+Deploy the **app/** directory as the Function App project root with VS Code Azure Functions extension or Core Tools. Upload input Excel/PDF files to `input-recon`, POST the documented request to the `start` function, and monitor the Durable instance.
+
+## Important
+- This changes authentication only. It does NOT validate unknown PDF families or guarantee production readiness.
+- Restrict PostgreSQL, Document Intelligence, and Storage networking. Avoid broad public exposure.
+- Do not check secrets into source control.
+- Application startup fails clearly if a required secret is missing.
+- Existing README may describe managed-identity configuration; this file overrides those instructions for this package.
