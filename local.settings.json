@@ -1,1 +1,23 @@
-{"IsEncrypted":false,"Values":{"FUNCTIONS_WORKER_RUNTIME":"python","AzureWebJobsStorage":"","DOCINTEL_ENDPOINT":"","DOCINTEL_KEY":"","POSTGRES_DSN":"","OUTPUT_CONTAINER":"recon-output"}}
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "RECON_STORAGE_CONNECTION_STRING": "",
+    "RECON_INPUT_CONTAINER": "input-recon",
+    "RECON_WORK_CONTAINER": "recon-work",
+    "RECON_OUTPUT_CONTAINER": "output-recon",
+    "DOCUMENT_INTELLIGENCE_ENDPOINT": "",
+    "DOCUMENT_INTELLIGENCE_MODEL": "prebuilt-layout",
+    "DOCUMENT_INTELLIGENCE_API_VERSION": "2024-11-30",
+    "DI_MAX_CONCURRENCY": "5",
+    "PDF_CHUNK_PAGES": "200",
+    "POSTGRES_HOST": "",
+    "POSTGRES_DB": "",
+    "POSTGRES_USER": "",
+    "POSTGRES_BATCH_SIZE": "1000",
+    "DOCUMENT_INTELLIGENCE_KEY": "",
+    "POSTGRES_PASSWORD": "",
+    "POSTGRES_PORT": "5432"
+  }
+}
