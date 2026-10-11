@@ -39,33 +39,38 @@ Deploy the **app/** directory as the Function App project root with VS Code Azur
  "requestedBy":"local-test"
 }
 
-```powerfx
-Set(
-    varWorkflowResult,
-    SodexoWF.Run(
-        cmbMainAccountFile_1.Selected.Path,
-        cmbIdSampleFile_1.Selected.Path,
-        JSON(
-            ForAll(
-                cmbPdfFiles_1.SelectedItems,
-                { FileName: ThisRecord.Name }
+
+IfError(
+    Set(
+        varWorkflowResult,
+        SodexoWF.Run(
+            cmbMainAccountFile_1.Selected.Path,
+            cmbIdSampleFile_1.Selected.Path,
+            JSON(
+                ForAll(
+                    cmbPdfFiles_1.SelectedItems,
+                    {FileName: ThisRecord.Name}
+                ),
+                JSONFormat.Compact
             ),
-            JSONFormat.Compact
-        ),
-        JSON(
-            ForAll(
-                cmbStates_1.SelectedItems,
-                { StateValue: ThisRecord.Value }
+            JSON(
+                ForAll(
+                    cmbStates_1.SelectedItems,
+                    {StateValue: ThisRecord.Value}
+                ),
+                JSONFormat.Compact
             ),
-            JSONFormat.Compact
-        ),
-        drpMonth_1.Selected.Value & " " & drpYear_1.Selected.Value,
-        txtRequestedBy_1.Text
+            drpMonth_1.Selected.Value & " " &
+                drpYear_1.Selected.Value,
+            txtRequestedBy_1.Text
+        )
+    ),
+    Notify(
+        "Workflow failed: " & FirstError.Message,
+        NotificationType.Error
+    ),
+    Notify(
+        "Workflow request submitted successfully.",
+        NotificationType.Success
     )
 );
-
-Notify(
-    "Sodexo workflow started successfully.",
-    NotificationType.Success
-);
-```
