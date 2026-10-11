@@ -40,37 +40,44 @@ Deploy the **app/** directory as the Function App project root with VS Code Azur
 }
 
 
+
 IfError(
     Set(
         varWorkflowResult,
         SodexoWF.Run(
             cmbMainAccountFile_1.Selected.Path,
             cmbIdSampleFile_1.Selected.Path,
+
             JSON(
                 ForAll(
                     cmbPdfFiles_1.SelectedItems,
-                    {FileName: ThisRecord.Name}
+                    ThisRecord.Name
                 ),
                 JSONFormat.Compact
             ),
+
             JSON(
                 ForAll(
                     cmbStates_1.SelectedItems,
-                    {StateValue: ThisRecord.Value}
+                    ThisRecord.Value
                 ),
                 JSONFormat.Compact
             ),
+
             drpMonth_1.Selected.Value & " " &
                 drpYear_1.Selected.Value,
+
             txtRequestedBy_1.Text
         )
     ),
+
     Notify(
         "Workflow failed: " & FirstError.Message,
         NotificationType.Error
     ),
+
     Notify(
-        "Workflow request submitted successfully.",
+        "Workflow started successfully.",
         NotificationType.Success
     )
 );
