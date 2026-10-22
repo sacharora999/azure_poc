@@ -15,6 +15,60 @@ class TransactionDecisions:
             max_retries=2
         )
 
+    
+import json
+
+
+async def validate_inputs(self, items_to_validate):
+    if not items_to_validate:
+        return {}
+
+    questions = [
+        {
+            "type": "predicate",
+            "name": f"validation_{i}",
+            "instructions": (
+                "Determine whether the field value "
+                "for this item satisfies its associated "
+                "rule definition. Use only the supplied "
+                "evidence. Do not infer missing values."
+            )
+        }
+        for i in range(len(items_to_validate))
+    ]
+
+    response = await self.client.decisions.create(
+        model="gpt-6-luna",
+        input=json.dumps(
+            {"items": items_to_validate},
+            default=str
+        ),
+        questions=questions
+    )
+
+    if len(response.answers) != len(items_to_validate):
+        raise ValueError("Validation answer count mismatch")
+
+    match_dict = {}
+
+    for index, (item, answer) in enumerate(
+        zip(items_to_validate, response.answers)
+    ):
+        if answer.name != f"validation_{index}":
+            raise ValueError("Validation answer mismatch")
+
+        if answer.type != "predicate":
+            raise ValueError("Unexpected decision answer")
+
+        # The threshold is illustrative and must be
+        # calibrated against labeled validation data.
+        match_dict[str(item["id"])] = (
+            answer.probability >= 0.8
+        )
+
+    return match_dict
+
+
     async def classify(self, transactions, rules):
         if not transactions:
             return json.dumps({"results": []})
