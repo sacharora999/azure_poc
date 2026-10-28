@@ -1,1 +1,43 @@
 
+{
+  "action": "post",
+  "rules": [
+    {
+      "pan": "GenPAN",
+      "company_name": "GP TA Test",
+      "client_id": "GenTest",
+      "rule_id": "f1a10001-1111-4111-8111-111111111111",
+      "classification": "ISD Classification",
+      "target_field_name": "['Product/Service Description']",
+      "target_classification": "Common",
+      "rule_definition": "Classify as Common if the expense relates to enterprise software subscription, application support, cloud infrastructure, or shared technology services used by multiple branches, including centrally managed IT services."
+    },
+    {
+      "pan": "GenPAN",
+      "company_name": "GP TA Test",
+      "client_id": "GenTest",
+      "rule_id": "f1a10002-2222-4222-8222-222222222222",
+      "classification": "ISD Classification",
+      "target_field_name": "['Product/Service Description']",
+      "target_classification": "Local",
+      "rule_definition": "Classify as Local if the expense relates to software installation, application configuration, technical support, or system maintenance performed for a specific branch, even if the application is part of an enterprise-wide system."
+    }
+  ]
+}
+
+{
+  "client_id": "GenTest",
+  "classifications": "ISD Classification",
+  "transactions": [
+    {
+      "transaction_id": "ISD-SAMEFIELD-001",
+      "company_pan": "GenPAN",
+      "target_fields": {
+        "Category": "IT Services",
+        "Product/Service Description": "Annual enterprise software subscription with application configuration, technical support and maintenance for the Chennai branch, integrated into a centrally managed platform used across multiple company locations.",
+        "companyName": "GP TA Test"
+      }
+    }
+  ]
+}
+
