@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-url = "https://genai-sharedservice-americas.pwcinternal.com/v1/decisions"
+url = ""
 key = os.getenv("LLM_API_KEY")
 
 payload = {
