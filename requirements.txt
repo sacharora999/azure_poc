@@ -6,3 +6,18 @@ pypdf>=5,<7
 pdfplumber>=0.11,<1
 openpyxl>=3.1,<4
 psycopg[binary]>=3.2,<4
+
+
+
+PySide6
+pandas
+openpyxl
+pyinstaller
+
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+
+.\.venv\Scripts\python.exe main.py
+
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onedir --windowed --name ExcelReportGenerator main.py
