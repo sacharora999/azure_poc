@@ -1,3 +1,44 @@
+Can you walk us through the current end-to-end process, from receiving input files to generating and approving the 11 reports?
+Which Microsoft 365 and Power Automate licenses are currently available?
+Are Office Scripts and the Excel Online (Business) connector enabled ?
+Are centrally managed scripts can be executed through Power Automate ?
+Does client allows installation of a signed Python-based .exe
+Is LGPLv3 open-source compliance acceptable under the client's software policies?
+client has an approved Azure subscription, whether custom Python web applications can be hosted ?
+
+1. Microsoft 365 licenses
+License	            SharePoint	    Excel for Web	Office Scripts suitability
+Business Basic	    Yes	            Yes	            Eligible, subject to admin settings
+Business Standard	Yes	            Yes	            Eligible
+Business Premium	Yes	            Yes	            Eligible
+Microsoft 365 E3	Yes	            Yes	            Eligible
+Microsoft 365 E5	Yes	            Yes	            Eligible
+Office 365 E3	    Yes	            Yes	            Eligible
+Office 365 E5	    Yes	            Yes	            Eligible
+
+License	                                     India list price/month	                Purpose
+Power Automate Basic (included rights)	     Included with eligible M365 plans	    Standard connector cloud flows
+Power Automate Free	                         ₹0	                                    Limited standard connector usage
+Power Automate Premium	                     ₹1,250/user	                        Premium connectors, cloud flows and attended RPA
+Power Automate Process	                     ₹12,480/bot	                        Organization-wide process automation and unattended RPA
+
+
+Microsoft Excel has a hard limit of 1,048,576 rows (which is roughly 10.48 lakh)
+Maximum input file size 25 MB via Excel Online (Business) connector for Office Scripts
+Single Office Script execution 120 seconds via Power Automate
+Streamlit has a default 200 MB per-file upload limit, which is configurable
+
+
+Office Scripts: Best for smaller, predictable Excel workloads where avoiding additional infrastructure is important.
+PySide6: Best when a small number of authorized users can run processing on suitably powerful desktops.
+Streamlit + Python: Best for centrally managed multi-user processing, especially when data volume or reconciliation complexity is expected to grow.
+
+
+
+
+
+
+
 import sys
 from pathlib import Path
 from datetime import datetime
