@@ -1,3 +1,4 @@
+/** Office Scripts solution: Expense Reconciliation and Exceptions */
 function main(workbook: ExcelScript.Workbook) {
   const source = workbook.getWorksheet("Input");
   if (!source) throw new Error("Input worksheet missing");
@@ -7,10 +8,8 @@ function main(workbook: ExcelScript.Workbook) {
   let report = workbook.getWorksheet("Report");
   if (report) report.delete();
   report = workbook.addWorksheet("Report");
-  const map = new Map<string, number[]>();
-  for(const r of data){const k=String(r[0]);const a=map.get(k)??[0,0];const units=Number(r[2])||0; a[0]+=units;a[1]+=units*(Number(r[3])||0);map.set(k,a);}
-  const output: (string|number)[][]=[["Region","Total Units","Sales","Average Selling Price"]];
-  for(const [k,a] of map)output.push([k,a[0],a[1],a[0]===0?0:a[1]/a[0]]);
+  const output: (string|number)[][]=[["Transaction ID","Department","Claimed","Approved","Difference","Status"]];
+  for(const r of data){const claimed=Number(r[2])||0;const approved=Number(r[3])||0;const diff=claimed-approved;output.push([String(r[0]),String(r[1]),claimed,approved,diff,Math.abs(diff)>1000?"EXCEPTION":"OK"]);}
   report.getRangeByIndexes(0,0,output.length,output[0].length).setValues(output);
   const header=report.getRangeByIndexes(0,0,1,output[0].length);
   header.getFormat().getFill().setColor("#155E75");
