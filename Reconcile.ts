@@ -1,4 +1,4 @@
-/** Office Scripts solution: Expense Reconciliation and Exceptions */
+/** Office Scripts solution: YTD Branch MIS and Trend Report */
 function main(workbook: ExcelScript.Workbook) {
   const source = workbook.getWorksheet("Input");
   if (!source) throw new Error("Input worksheet missing");
@@ -8,8 +8,11 @@ function main(workbook: ExcelScript.Workbook) {
   let report = workbook.getWorksheet("Report");
   if (report) report.delete();
   report = workbook.addWorksheet("Report");
-  const output: (string|number)[][]=[["Transaction ID","Department","Claimed","Approved","Difference","Status"]];
-  for(const r of data){const claimed=Number(r[2])||0;const approved=Number(r[3])||0;const diff=claimed-approved;output.push([String(r[0]),String(r[1]),claimed,approved,diff,Math.abs(diff)>1000?"EXCEPTION":"OK"]);}
+  const map = new Map<string, number[]>();
+  for(const r of data){const key=`${String(r[1])}|${String(r[0])}`;const a=map.get(key)??[0,0];a[0]+=Number(r[2])||0;a[1]+=Number(r[3])||0;map.set(key,a);}
+  const output: (string|number)[][]=[["Branch","Month","Revenue","Expense","Profit","YTD Profit"]];
+  const months=["Jan","Feb","Mar","Apr","May","Jun"];
+  for(const branch of ["NCL","MM","CHN","CORP"]){let ytd=0;for(const month of months){const a=map.get(`${branch}|${month}`)??[0,0];const profit=a[0]-a[1];ytd+=profit;output.push([branch,month,a[0],a[1],profit,ytd]);}}
   report.getRangeByIndexes(0,0,output.length,output[0].length).setValues(output);
   const header=report.getRangeByIndexes(0,0,1,output[0].length);
   header.getFormat().getFill().setColor("#155E75");
