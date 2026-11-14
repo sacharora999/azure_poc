@@ -1,4 +1,4 @@
-/** Office Scripts solution: Departmental Budget vs Actual MIS */
+/** Office Scripts solution: Monthly Profit and Loss Consolidation */
 function main(workbook: ExcelScript.Workbook) {
   const source = workbook.getWorksheet("Input");
   if (!source) throw new Error("Input worksheet missing");
@@ -9,20 +9,17 @@ function main(workbook: ExcelScript.Workbook) {
   if (report) report.delete();
   report = workbook.addWorksheet("Report");
   const map = new Map<string, number[]>();
-  for (const r of data) { const key=String(r[0]); const a=map.get(key)??[0,0]; a[0]+=Number(r[2])||0; a[1]+=Number(r[3])||0; map.set(key,a); }
-  const output: (string|number)[][]=[["Department","Budget","Actual","Variance","Variance %"]];
-  for(const [key,v] of map) output.push([key,v[0],v[1],v[1]-v[0],v[0]===0?0:(v[1]-v[0])/v[0]]);
-  const n=output.length+1; output.push(["GRAND TOTAL",0,0,0,0]);
-
+  for(const r of data) { const month=String(r[0]); const type=String(r[2]); const a=map.get(month)??[0,0,0]; const amt=Number(r[3])||0; if(type==="Revenue")a[0]+=amt; else if(type==="COGS")a[1]+=amt; else a[2]+=amt; map.set(month,a); }
+  const output: (string|number)[][]=[["Month","Revenue","COGS","Gross Profit","Other Expenses","Net Profit"]];
+  for(const [m,a] of map)output.push([m,a[0],a[1],a[0]-a[1],a[2],a[0]-a[1]-a[2]]);
   report.getRangeByIndexes(0,0,output.length,output[0].length).setValues(output);
   const header=report.getRangeByIndexes(0,0,1,output[0].length);
   header.getFormat().getFill().setColor("#155E75");
   header.getFormat().getFont().setColor("#FFFFFF");
   header.getFormat().getFont().setBold(true);
-  report.getRange(`B${n}:E${n}`).setFormulas([[`=SUM(B2:B${n-1})`,`=SUM(C2:C${n-1})`,`=C${n}-B${n}`,`=IFERROR(D${n}/B${n},0)`]]);
   report.getUsedRange().getFormat().autofitColumns();
   report.getUsedRange().getFormat().autofitRows();
   report.getFreezePanes().freezeRows(1);
   report.getUsedRange().setNumberFormat('#,##0;[Red](#,##0);0');
-  report.getRange(`E2:E${output.length+1}`).setNumberFormat("0.0%");
+  
 }
