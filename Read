@@ -1,33 +1,28 @@
 
 function main(
   workbook: ExcelScript.Workbook,
-  sheetName: string = ""
-): (string | number | boolean)[][] {
+  sheetName: string
+): string[][] {
 
-  let sheet: ExcelScript.Worksheet;
+  const sheet = workbook.getWorksheet(sheetName);
 
-  if (sheetName) {
-    const selected = workbook.getWorksheet(sheetName);
-    if (!selected) {
-      throw new Error("Worksheet not found: " + sheetName);
-    }
-    sheet = selected;
-  } else {
-    const sheets = workbook.getWorksheets();
-    if (sheets.length !== 1) {
-      throw new Error("Specify the source worksheet name.");
-    }
-    sheet = sheets[0];
+  if (!sheet) {
+    throw new Error("Worksheet not found: " + sheetName);
   }
 
   const range = sheet.getUsedRange();
 
   if (!range) {
-    throw new Error("Source worksheet is empty.");
+    throw new Error("Worksheet is empty.");
   }
 
-  return range.getValues();
+  const values = range.getValues();
+
+  return values.map(row =>
+    row.map(cell => String(cell ?? ""))
+  );
 }
+
 
 
 
@@ -36,7 +31,7 @@ function main(
 function main(
   workbook: ExcelScript.Workbook,
   sheetName: string,
-  data: (string | number | boolean)[][]
+  data: string[][]
 ): string {
 
   if (!data || data.length === 0) {
@@ -51,7 +46,9 @@ function main(
 
   for (let i = 0; i < data.length; i++) {
     if (data[i].length !== columnCount) {
-      throw new Error("Inconsistent column count at row " + i);
+      throw new Error(
+        "Inconsistent column count at row " + i
+      );
     }
   }
 
@@ -79,3 +76,4 @@ function main(
   return "Imported " + (data.length - 1) +
     " records into " + sheetName;
 }
+
