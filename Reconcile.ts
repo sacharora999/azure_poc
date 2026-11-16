@@ -1,3 +1,35 @@
+/**
+ * Credit Line Utilization Report
+ * Input worksheets: FBL5n, VendorMaster, BUMaster, CreditLine
+ * Output worksheet: Credit Utilization Report
+ *
+ * Business-rule assumptions to confirm:
+ * - Open items: Clearing Doc blank (no clearing-date field supplied).
+ * - Posting Date <= asOfDate.
+ * - Utilization: sum of Amount in Local Currency, preserving source sign.
+ * - Credit line values are in INR millions; multiply by 1,000,000.
+ */
+function main(workbook: ExcelScript.Workbook, asOfDate: string = "2026-09-30"): string {
+  type Cell = string | number | boolean;
+  type Row = Cell[];
+  const clean = (v: Cell): string => String(v ?? "").trim();
+  const key = (v: Cell): string => clean(v).replace(/\s+/g, " ").toUpperCase();
+  const read = (name: string): Row[] => {
+    const sheet = workbook.getWorksheet(name);
+    if (!sheet) throw new Error("Missing worksheet: " + name);
+    const range = sheet.getUsedRange();
+    if (!range) throw new Error("Empty worksheet: " + name);
+    const rows = range.getValues();
+    if (rows.length < 2) throw new Error("No data rows in: " + name);
+    return rows;
+  };
+  const index = (headers: Row, aliases: string[], required: boolean = true): number => {
+    const normalized = headers.map(v => key(v).replace(/[^A-Z0-9]/g, ""));
+    for (const alias of aliases) {
+      const found = normalized.indexOf(key(alias).replace(/[^A-Z0-9]/g, ""));
+      if (found >= 0) return found;
+    }
+    if (required) throw new Error("Missing column: " + aliases[0] + ". Available: " + headers.map(clean).join(", "));
     return -1;
   };
   const amount = (v: Cell): number => {
