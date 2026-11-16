@@ -1,145 +1,128 @@
 /**
- * Credit Line Utilization Report — Office Scripts
- * Workbook must contain sheets: FBL5n, VendorMaster, BUMaster, CreditLine.
- * All four source files must first be converted from .xls to .xlsx and
- * copied into these worksheets (e.g. by Power Automate / a staging step).
- * Amounts are in INR; credit line input is INR millions.
- * ASSUMPTION: open items have blank Clearing Doc, and posting date <= asOfDate.
+ * Credit Line Utilization Report
+ * Input worksheets: FBL5n, VendorMaster, BUMaster, CreditLine
+ * Output worksheet: Credit Utilization Report
+ *
+ * Business-rule assumptions to confirm:
+ * - Open items: Clearing Doc blank (no clearing-date field supplied).
+ * - Posting Date <= asOfDate.
+ * - Utilization: sum of Amount in Local Currency, preserving source sign.
+ * - Credit line values are in INR millions; multiply by 1,000,000.
  */
 function main(workbook: ExcelScript.Workbook, asOfDate: string = "2026-09-30"): string {
   type Cell = string | number | boolean;
-  type RecordRow = { [key: string]: Cell };
-  const norm = (v: Cell | undefined): string => String(v ?? "").trim().replace(/\s+/g, " ").toUpperCase();
-  const companyKey = (v: Cell | undefined): string => norm(v).replace(/[^A-Z0-9]/g, "");
-  const amount = (v: Cell | undefined): number => {
-    if (typeof v === "number") return v;
-    const s = String(v ?? "").trim();
-    if (!s) return 0;
-    const negative = /^\(.*\)$/.test(s);
-    const n = Number(s.replace(/[₹,()\s]/g, ""));
-    if (!Number.isFinite(n)) throw new Error(`Invalid amount: ${s}`);
-    return negative ? -n : n;
-  };
-  function readSheet(name: string): RecordRow[] {
+  type Row = Cell[];
+  const clean = (v: Cell): string => String(v ?? "").trim();
+  const key = (v: Cell): string => clean(v).replace(/\s+/g, " ").toUpperCase();
+  const read = (name: string): Row[] => {
     const sheet = workbook.getWorksheet(name);
-    if (!sheet) throw new Error(`Missing worksheet: ${name}`);
+    if (!sheet) throw new Error("Missing worksheet: " + name);
     const range = sheet.getUsedRange();
-    if (!range) throw new Error(`Empty worksheet: ${name}`);
-    const cells = range.getValues() as Cell[][];
-    const headers = cells[0].map(x => norm(x));
-    return cells.slice(1).filter(row => row.some(x => norm(x) !== "")).map(row => {
-      const obj: RecordRow = {};
-      headers.forEach((h, i) => { if (h) obj[h] = row[i] ?? ""; });
-      return obj;
-    });
-  }
-  const field = (r: RecordRow, ...names: string[]): Cell => {
-    for (const name of names) {
-      const value = r[norm(name)];
-      if (value !== undefined) return value;
+    if (!range) throw new Error("Empty worksheet: " + name);
+    const rows = range.getValues();
+    if (rows.length < 2) throw new Error("No data rows in: " + name);
+    return rows;
+  };
+  const index = (headers: Row, aliases: string[], required: boolean = true): number => {
+    const normalized = headers.map(v => key(v).replace(/[^A-Z0-9]/g, ""));
+    for (const alias of aliases) {
+      const found = normalized.indexOf(key(alias).replace(/[^A-Z0-9]/g, ""));
+      if (found >= 0) return found;
     }
-    return "";
+    if (required) throw new Error("Missing column: " + aliases[0] + ". Available: " + headers.map(clean).join(", "));
+    return -1;
   };
-  const requireFields = (sheet: string, fields: string[]): void => {
-    const ws = workbook.getWorksheet(sheet);
-    if (!ws) throw new Error(`Missing worksheet: ${sheet}`);
-    const used = ws.getUsedRange();
-    if (!used) throw new Error(`Empty worksheet: ${sheet}`);
-    const hdr = used.getRow(0).getValues()[0].map(x => norm(x));
-    for (const f of fields) if (!hdr.includes(norm(f))) throw new Error(`${sheet}: missing column '${f}'`);
+  const amount = (v: Cell): number => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    let s = clean(v).replace(/[,₹\s]/g, "");
+    if (!s || s === "-") return 0;
+    if (/^\(.*\)$/.test(s)) s = "-" + s.slice(1, -1);
+    const n = Number(s);
+    if (!Number.isFinite(n)) throw new Error("Invalid numeric amount: " + clean(v));
+    return n;
   };
-  requireFields("FBL5n", ["Account", "Posting Date", "Amount in Local Currency", "Clearing Doc"]);
-  requireFields("VendorMaster", ["Account", "Customer Name"]);
-  requireFields("BUMaster", ["Account", "Branch Name"]);
-  requireFields("CreditLine", ["Branch", "Company Name"]);
-  const txns = readSheet("FBL5n");
-  const vendors = readSheet("VendorMaster");
-  const branches = readSheet("BUMaster");
-  const limits = readSheet("CreditLine");
-  const vendorMap = new Map<string, string>();
-  vendors.forEach(r => vendorMap.set(norm(field(r,"Account")), String(field(r,"Customer Name")).trim()));
-  const branchMap = new Map<string, string>();
-  branches.forEach(r => branchMap.set(norm(field(r,"Account")), String(field(r,"Branch Name")).trim()));
-  const reportDate = new Date(asOfDate + "T00:00:00Z");
-  if (Number.isNaN(reportDate.getTime())) throw new Error("asOfDate must be YYYY-MM-DD");
-  function dateValue(v: Cell): number {
-    if (typeof v === "number") return Date.UTC(1899,11,30) + Math.floor(v) * 86400000;
-    const s = String(v ?? "").trim();
-    if (!s) throw new Error("Posting Date is blank");
-    let m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
-    if (m) return Date.UTC(Number(m[3]), Number(m[2])-1, Number(m[1]));
-    const t = Date.parse(s);
-    if (Number.isNaN(t)) throw new Error(`Invalid posting date: ${s}`);
-    return t;
-  }
-  // Sum open balances by normalized Branch + Company Name.
-  const utilization = new Map<string, number>();
-  let missingMasters = 0;
-  for (const t of txns) {
-    if (norm(field(t,"Clearing Doc")) !== "") continue;
-    if (dateValue(field(t,"Posting Date")) > reportDate.getTime()) continue;
-    const acct = norm(field(t,"Account"));
-    const customer = vendorMap.get(acct);
-    const branch = branchMap.get(acct);
-    if (!customer || !branch) { missingMasters++; continue; }
-    const key = norm(branch) + "|" + companyKey(customer);
-    utilization.set(key, (utilization.get(key) ?? 0) + amount(field(t,"Amount in Local Currency")));
-  }
-  const output: Cell[][] = [];
-  const matched = new Set<string>();
-  for (const r of limits) {
-    const branch = String(field(r,"Branch")).trim();
-    const company = String(field(r,"Company Name", "Company name")).trim();
-    if (!branch || !company) continue;
-    const creditMillion = amount(field(r,"Approved Credit Line Amt for FY", "Approved Credit Line Amount for FY26 (INR Million)", "Approved Credit Line Amount for FY26", "Approved Credit Line Amt for FY26"));
-    const creditINR = creditMillion * 1000000;
-    const key = norm(branch) + "|" + companyKey(company);
-    if (matched.has(key)) throw new Error(`Duplicate CreditLine branch/company: ${branch} / ${company}`);
-    matched.add(key);
-    const used = utilization.get(key) ?? 0;
-    output.push([branch.toUpperCase(), company.toUpperCase(), creditINR, String(field(r,"Credit Insurance Limit Validity")).trim(), used, creditINR > 0 ? used / creditINR * 100 : ""]);
-  }
-  output.sort((a,b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
-  const old = workbook.getWorksheet("Credit Utilization Report");
-  if (old) old.delete();
-  const ws = workbook.addWorksheet("Credit Utilization Report");
-  ws.getRange("A1:F1").merge();
-  ws.getRange("A1").setValue("Credit Line Utilization Report");
-  ws.getRange("A2:F2").merge();
-  ws.getRange("A2").setValue(`As on ${asOfDate}`);
-  ws.getRange("A4:F4").setValues([["Branch","Customer (Open Credit)","Credit Line","Validity of limit","Utilization","%"]]);
-  const header = ws.getRange("A4:F4");
-  header.getFormat().getFill().setColor("#DCE6EF");
-  header.getFormat().getFont().setBold(true);
-  header.getFormat().setRowHeight(32);
-  if (output.length) {
-    const data = ws.getRangeByIndexes(4,0,output.length,6);
-    data.setValues(output);
-    ws.getRange(`C5:C${output.length+4}`).setNumberFormatLocal("#,##0;[Red](#,##0);–");
-    ws.getRange(`E5:E${output.length+4}`).setNumberFormatLocal("#,##0;[Red](#,##0);–");
-    ws.getRange(`F5:F${output.length+4}`).setNumberFormatLocal("0.00");
-    const pct = ws.getRange(`F5:F${output.length+4}`);
-    const c1 = pct.addConditionalFormat(ExcelScript.ConditionalFormatType.custom);
-    c1.getCustom().getRule().setFormula('=AND(ISNUMBER(F5),F5>=0,F5<=20)');
-    c1.getCustom().getFormat().getFill().setColor("#E9D38C");
-    const c2 = pct.addConditionalFormat(ExcelScript.ConditionalFormatType.custom);
-    c2.getCustom().getRule().setFormula('=AND(ISNUMBER(F5),F5>20,F5<=70)');
-    c2.getCustom().getFormat().getFill().setColor("#B6DAD1");
-    const c3 = pct.addConditionalFormat(ExcelScript.ConditionalFormatType.custom);
-    c3.getCustom().getRule().setFormula('=AND(ISNUMBER(F5),F5>70)');
-    c3.getCustom().getFormat().getFill().setColor("#E3AAC7");
-  }
-  ws.getRange("A:A").getFormat().setColumnWidth(90);
-  ws.getRange("B:B").getFormat().setColumnWidth(350);
-  ws.getRange("C:C").getFormat().setColumnWidth(130);
-  ws.getRange("D:D").getFormat().setColumnWidth(180);
-  ws.getRange("E:E").getFormat().setColumnWidth(130);
-  ws.getRange("F:F").getFormat().setColumnWidth(85);
-  ws.getRange("A1:F1").getFormat().getFont().setBold(true);
-  ws.getRange("A1:F1").getFormat().getFont().setSize(15);
-  ws.getRange("A4:F4").getFormat().setWrapText(true);
-  ws.getFreezePanes().freezeRows(4);
-  ws.getAutoFilter().apply(ws.getRange(`A4:F${Math.max(5,output.length+4)}`));
-  return `Created ${output.length} customer credit line rows; ${missingMasters} open transactions skipped due to missing master data; ${utilization.size - [...matched].filter(k => utilization.has(k)).length} utilization keys had no credit-line match.`;
-}
+  const excelDate = (v: Cell): number | null => {
+    const s = clean(v);
+    if (!s) return null;
+    if (typeof v === "number" || /^\d{5}(\.\d+)?$/.test(s)) {
+      const serial = Number(v);
+      return Number.isFinite(serial) ? Math.floor(serial) : null;
+    }
+    let year = 0, month = 0, day = 0;
+    let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+    if (m) { year = Number(m[1]); month = Number(m[2]); day = Number(m[3]); }
+    else {
+      m = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/.exec(s);
+      if (!m) return null;
+      day = Number(m[1]); month = Number(m[2]); year = Number(m[3]);
+    }
+    const utc = Date.UTC(year, month - 1, day);
+    const dt = new Date(utc);
+    if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) return null;
+    return Math.floor((utc - Date.UTC(1899, 11, 30)) / 86400000);
+  };
+  const cutoff = excelDate(asOfDate);
+  if (cutoff === null) throw new Error("Invalid asOfDate; use YYYY-MM-DD: " + asOfDate);
 
+  const vendor = read("VendorMaster");
+  const va = index(vendor[0], ["Account"]);
+  const vn = index(vendor[0], ["Customer Name", "Company Name"]);
+  const customers = new Map<string, string>();
+  for (const r of vendor.slice(1)) if (key(r[va])) customers.set(key(r[va]), clean(r[vn]));
+
+  const bu = read("BUMaster");
+  const ba = index(bu[0], ["Account"]);
+  const bn = index(bu[0], ["Branch Name", "Branch"]);
+  const branches = new Map<string, string>();
+  for (const r of bu.slice(1)) if (key(r[ba])) branches.set(key(r[ba]), clean(r[bn]));
+
+  const credit = read("CreditLine");
+  const cb = index(credit[0], ["Branch"]);
+  const cn = index(credit[0], ["Company Name", "Company name", "Customer Name"]);
+  const cl = index(credit[0], ["Approved Credit Line Amt for FY", "Approved Credit line amount for FY26 (in INR Million)", "Approved Credit Line Amount"]);
+  const cv = index(credit[0], ["Credit Insurance Limit Validity", "Credit Insurance Limit validity"], false);
+  type Credit = { branch: string; customer: string; limit: number; validity: string };
+  const credits = new Map<string, Credit>();
+  for (const r of credit.slice(1)) {
+    const branch = clean(r[cb]); const customer = clean(r[cn]);
+    if (!branch || !customer) continue;
+    const composite = key(branch) + "|" + key(customer);
+    if (credits.has(composite)) throw new Error("Duplicate CreditLine branch/company: " + composite);
+    credits.set(composite, { branch, customer, limit: amount(r[cl]) * 1000000, validity: cv < 0 ? "" : clean(r[cv]) });
+  }
+
+  const fbl = read("FBL5n");
+  const fa = index(fbl[0], ["Account"]);
+  const fp = index(fbl[0], ["Posting Date"]);
+  const fc = index(fbl[0], ["Clearing Doc", "Clearing Document"]);
+  const fm = index(fbl[0], ["Amount in Local Currency"]);
+  const sums = new Map<string, number>();
+  const missing = new Set<string>();
+  let included = 0;
+  for (const r of fbl.slice(1)) {
+    const account = key(r[fa]);
+    if (!account) continue;
+    if (clean(r[fc]) !== "") continue;
+    const posted = excelDate(r[fp]);
+    if (posted === null) throw new Error("Invalid Posting Date for account " + account + ": " + clean(r[fp]));
+    if (posted > cutoff) continue;
+    const customer = customers.get(account);
+    const branch = branches.get(account);
+    if (!customer || !branch) { missing.add(account); continue; }
+    const composite = key(branch) + "|" + key(customer);
+    sums.set(composite, (sums.get(composite) ?? 0) + amount(r[fm]));
+    included++;
+  }
+  if (missing.size) throw new Error("Missing master mappings for accounts: " + Array.from(missing).slice(0, 15).join(", "));
+
+  let report = workbook.getWorksheet("Credit Utilization Report");
+  if (!report) report = workbook.addWorksheet("Credit Utilization Report");
+  const old = report.getUsedRange();
+  if (old) old.clear(ExcelScript.ClearApplyTo.all);
+
+  const header: Cell[] = ["Branch", "Customer (Open Credit)", "Credit Line", "Validity of limit", "Utilization", "%"];
+  const output: Cell[][] = [header];
+  const ordered = Array.from(credits.values()).sort((a, b) => (a.branch + "|" + a.customer).localeCompare(b.branch + "|" + b.customer));
+  for (const c of ordered) {
+    const utilization = sums.get(key(c.branch) + "|" + key(c.customer)) ?? 0;
+    const percent = c.limit > 0 ? utilization / c.limit * 100 : 0;
