@@ -54,7 +54,7 @@ function main(workbook: ExcelScript.Workbook): string {
     }
 
     let text = clean(value)
-      .replace(/[,₹\s]/g, "");
+      .replace(/[,\s]/g, "");
 
     if (text === "" || text === "-") {
       return 0;
@@ -413,18 +413,41 @@ function main(workbook: ExcelScript.Workbook): string {
   }
 
   // Write all report data in one operation.
+	// Report title
+  const titleRange = report.getRange("A1:F1");
+  titleRange.merge(false);
+  titleRange.setValue("Credit Utilization Report");
+
+  titleRange.getFormat().getFont().setBold(true);
+  titleRange.getFormat().getFont().setSize(18);
+  titleRange.getFormat().setRowHeight(35);
+
+  // Colour coding legend
+  report.getRange("A3:B3").merge(false);
+  report.getRange("A3").setValue("0–20%: Yellow/Orange"); 
+  report.getRange("A3:B3").getFormat().getFill()
+	  .setColor("#F4B183");
+
+  report.getRange("C3:D3").merge(false);
+  report.getRange("C3").setValue("21–70%: Light Blue");
+  report.getRange("C3:D3").getFormat().getFill()
+	  .setColor("#B7DEE8");
+
+  report.getRange("E3:F3").merge(false);
+  report.getRange("E3").setValue("Above 70%: Pink");
+  report.getRange("E3:F3").getFormat().getFill()
+	  .setColor("#DAA0C1");
+
+	// Write headers and data from row 5
   report.getRangeByIndexes(
-    0,
-    0,
-    output.length,
-    6
-  ).setValues(output);
+	  4, 0, output.length, 6
+	).setValues(output);
 
   // ============================================
   // 12. FORMAT REPORT HEADER
   // ============================================
 
-  const headerRange = report.getRange("A1:F1");
+  const headerRange = report.getRange("A5:F5");
 
   headerRange.getFormat()
     .getFill()
@@ -459,15 +482,14 @@ function main(workbook: ExcelScript.Workbook): string {
 
   if (output.length > 1) {
 
-    const lastRow = output.length;
+    const lastRow = output.length + 4;
 
     // Credit Line and Utilization.
-    report.getRange(`C2:D${lastRow}`)
-      .setNumberFormat("#,##0.00");
+  report.getRange(`C6:D${lastRow}`)
+  .setNumberFormat("#,##0.00");
 
-    // Percentage is stored as a number such as 55.00.
-    report.getRange(`E2:E${lastRow}`)
-      .setNumberFormat('0.00"%"');
+  report.getRange(`E6:E${lastRow}`)
+  .setNumberFormat('0.00"%"');
 
     // ==========================================
     // 14. PERCENTAGE COLOR CODING
@@ -477,7 +499,7 @@ function main(workbook: ExcelScript.Workbook): string {
 
       const percentage = Number(output[i][4]);
 
-      const cell = report.getCell(i, 4);
+      const cell = report.getCell(i + 4, 4);
 
       if (percentage >= 0 && percentage <= 20) {
 
