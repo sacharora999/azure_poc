@@ -1,35 +1,3 @@
-/**
- * Credit Line Utilization Report
- * Input worksheets: FBL5n, VendorMaster, BUMaster, CreditLine
- * Output worksheet: Credit Utilization Report
- *
- * Business-rule assumptions to confirm:
- * - Open items: Clearing Doc blank (no clearing-date field supplied).
- * - Posting Date <= asOfDate.
- * - Utilization: sum of Amount in Local Currency, preserving source sign.
- * - Credit line values are in INR millions; multiply by 1,000,000.
- */
-function main(workbook: ExcelScript.Workbook, asOfDate: string = "2026-09-30"): string {
-  type Cell = string | number | boolean;
-  type Row = Cell[];
-  const clean = (v: Cell): string => String(v ?? "").trim();
-  const key = (v: Cell): string => clean(v).replace(/\s+/g, " ").toUpperCase();
-  const read = (name: string): Row[] => {
-    const sheet = workbook.getWorksheet(name);
-    if (!sheet) throw new Error("Missing worksheet: " + name);
-    const range = sheet.getUsedRange();
-    if (!range) throw new Error("Empty worksheet: " + name);
-    const rows = range.getValues();
-    if (rows.length < 2) throw new Error("No data rows in: " + name);
-    return rows;
-  };
-  const index = (headers: Row, aliases: string[], required: boolean = true): number => {
-    const normalized = headers.map(v => key(v).replace(/[^A-Z0-9]/g, ""));
-    for (const alias of aliases) {
-      const found = normalized.indexOf(key(alias).replace(/[^A-Z0-9]/g, ""));
-      if (found >= 0) return found;
-    }
-    if (required) throw new Error("Missing column: " + aliases[0] + ". Available: " + headers.map(clean).join(", "));
     return -1;
   };
   const amount = (v: Cell): number => {
@@ -126,3 +94,37 @@ function main(workbook: ExcelScript.Workbook, asOfDate: string = "2026-09-30"): 
   for (const c of ordered) {
     const utilization = sums.get(key(c.branch) + "|" + key(c.customer)) ?? 0;
     const percent = c.limit > 0 ? utilization / c.limit * 100 : 0;
+    output.push([c.branch, c.customer, c.limit, c.validity, utilization, percent]);
+  }
+  if (output.length < 1 || output.length > 1000000) throw new Error("Invalid output row count: " + output.length);
+  const width = 6;
+  for (let i = 0; i < output.length; i++) if (output[i].length !== width) throw new Error("Invalid output width at row " + i);
+  report.getRangeByIndexes(0, 0, output.length, width).setValues(output);
+
+  const head = report.getRange("A1:F1");
+  head.getFormat().getFill().setColor("#D9E2F3");
+  head.getFormat().getFont().setBold(true);
+  head.getFormat().setWrapText(true);
+  report.getRange("A:A").getFormat().setColumnWidth(95);
+  report.getRange("B:B").getFormat().setColumnWidth(340);
+  report.getRange("C:E").getFormat().setColumnWidth(135);
+  report.getRange("F:F").getFormat().setColumnWidth(90);
+  if (output.length > 1) {
+    const last = output.length;
+    report.getRange(`C2:C${last}`).setNumberFormat("#,##0.00");
+    report.getRange(`E2:E${last}`).setNumberFormat("#,##0.00");
+    report.getRange(`F2:F${last}`).setNumberFormat("0.00");
+    const percentRange = report.getRange(`F2:F${last}`);
+    const low = percentRange.addConditionalFormat(ExcelScript.ConditionalFormatType.cellValue);
+    low.getCellValue().setRule({ formula1: "0", formula2: "20", operator: ExcelScript.ConditionalCellValueOperator.between });
+    low.getCellValue().getFormat().getFill().setColor("#F4B183");
+    const mid = percentRange.addConditionalFormat(ExcelScript.ConditionalFormatType.cellValue);
+    mid.getCellValue().setRule({ formula1: "20", formula2: "70", operator: ExcelScript.ConditionalCellValueOperator.between });
+    mid.getCellValue().getFormat().getFill().setColor("#B7DEE8");
+    const high = percentRange.addConditionalFormat(ExcelScript.ConditionalFormatType.cellValue);
+    high.getCellValue().setRule({ formula1: "70", operator: ExcelScript.ConditionalCellValueOperator.greaterThan });
+    high.getCellValue().getFormat().getFill().setColor("#DAA0C1");
+  }
+  report.getRange("A1:F1").getFormat().setRowHeight(32);
+  return `Report generated: ${ordered.length} credit-line records, ${included} eligible FBL5n rows, as of ${asOfDate}.`;
+}
