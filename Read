@@ -1,0 +1,81 @@
+
+function main(
+  workbook: ExcelScript.Workbook,
+  sheetName: string = ""
+): (string | number | boolean)[][] {
+
+  let sheet: ExcelScript.Worksheet;
+
+  if (sheetName) {
+    const selected = workbook.getWorksheet(sheetName);
+    if (!selected) {
+      throw new Error("Worksheet not found: " + sheetName);
+    }
+    sheet = selected;
+  } else {
+    const sheets = workbook.getWorksheets();
+    if (sheets.length !== 1) {
+      throw new Error("Specify the source worksheet name.");
+    }
+    sheet = sheets[0];
+  }
+
+  const range = sheet.getUsedRange();
+
+  if (!range) {
+    throw new Error("Source worksheet is empty.");
+  }
+
+  return range.getValues();
+}
+
+
+
+
+
+function main(
+  workbook: ExcelScript.Workbook,
+  sheetName: string,
+  data: (string | number | boolean)[][]
+): string {
+
+  if (!data || data.length === 0) {
+    throw new Error("No data received for " + sheetName);
+  }
+
+  const columnCount = data[0].length;
+
+  if (columnCount === 0) {
+    throw new Error("No columns found.");
+  }
+
+  for (let i = 0; i < data.length; i++) {
+    if (data[i].length !== columnCount) {
+      throw new Error("Inconsistent column count at row " + i);
+    }
+  }
+
+  let sheet = workbook.getWorksheet(sheetName);
+
+  if (!sheet) {
+    sheet = workbook.addWorksheet(sheetName);
+  }
+
+  const oldRange = sheet.getUsedRange();
+
+  if (oldRange) {
+    oldRange.clear(ExcelScript.ClearApplyTo.all);
+  }
+
+  const target = sheet.getRangeByIndexes(
+    0,
+    0,
+    data.length,
+    columnCount
+  );
+
+  target.setValues(data);
+
+  return "Imported " + (data.length - 1) +
+    " records into " + sheetName;
+}
