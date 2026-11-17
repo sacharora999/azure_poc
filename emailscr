@@ -1,0 +1,34 @@
+
+function main(workbook: ExcelScript.Workbook) {
+
+  const sheet = workbook.getWorksheet("Sheet1");
+  const data = sheet.getUsedRange().getValues();
+
+  let partnerEmails: string[] = [];
+  let managerEmails: string[] = [];
+  let sharedMailbox = "";
+
+  for (let i = 1; i < data.length; i++) {
+
+    // Shared Mailbox - Column F
+    if (data[i][5]) {
+      sharedMailbox = String(data[i][5]);
+    }
+
+    // Partner Email ID - Column I
+    if (data[i][8]) {
+      partnerEmails.push(String(data[i][8]));
+    }
+
+    // Manager Email ID - Column K
+    if (data[i][10]) {
+      managerEmails.push(String(data[i][10]));
+    }
+  }
+
+  return {
+    sharedMailbox: sharedMailbox,
+    partnerEmails: partnerEmails.join(";"),
+    managerEmails: managerEmails.join(";")
+  };
+}
