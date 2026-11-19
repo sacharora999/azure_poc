@@ -1,0 +1,101 @@
+/** Material Ageing Report - Excel Office Scripts.
+ * Copy four supplied input worksheets into ONE workbook with names:
+ * MB51, MB52, Previous Ageing, Plant Master.
+ * The output is rebuilt in Ageing Sheet, Adjusted MB52 and Movement Audit.
+ * Assumptions are documented in README.md; review before production use.
+ */
+function main(workbook: ExcelScript.Workbook, reportDate: string = '2026-10-31') {
+  type Cell = string | number | boolean;
+  type RecordRow = { [key: string]: Cell };
+  const required = ['MB51', 'MB52', 'Previous Ageing', 'Plant Master'];
+  for (const name of required) if (!workbook.getWorksheet(name)) throw new Error(`Missing worksheet: ${name}`);
+  function rows(name: string): RecordRow[] {
+    const sheet = workbook.getWorksheet(name);
+    const used = sheet.getUsedRange();
+    if (!used) throw new Error(`Empty worksheet: ${name}`);
+    const values = used.getValues() as Cell[][];
+    const headers = values[0].map(v => String(v).trim());
+    return values.slice(1).filter(r => r.some(v => String(v ?? '').trim() !== '')).map(r => {
+      const obj: RecordRow = {};
+      headers.forEach((h, i) => obj[h] = r[i] ?? '');
+      return obj;
+    });
+  }
+  const s = (v: Cell | undefined): string => String(v ?? '').trim();
+  const n = (v: Cell | undefined): number => { const x = Number(String(v ?? '').replace(/,/g, '')); return Number.isFinite(x) ? x : 0; };
+  const key = (r: RecordRow): string => `${s(r['Material No'])}|${s(r['Batch No'])}`;
+  // Dates must be ISO YYYY-MM-DD strings or genuine Excel date serials.
+  function iso(v: Cell | undefined): string {
+    if (typeof v === 'number') {
+      const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000);
+      return d.toISOString().slice(0, 10);
+    }
+    const t = s(v);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    if (/^\d{2}-[A-Za-z]{3}-\d{2,4}$/.test(t)) {
+      const parts = t.split('-'); const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(parts[1].toLowerCase());
+      const yr = Number(parts[2]); if (mon >= 0) return `${yr < 100 ? 2000 + yr : yr}-${String(mon + 1).padStart(2, '0')}-${parts[0]}`;
+    }
+    return '';
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw new Error('reportDate must be YYYY-MM-DD');
+  const reportMs = Date.parse(reportDate + 'T00:00:00Z');
+  if (!Number.isFinite(reportMs)) throw new Error('Invalid reportDate');
+  const reportMonth = reportDate.slice(0, 7);
+  const prevLast = new Date(Date.UTC(Number(reportDate.slice(0, 4)), Number(reportDate.slice(5, 7)) - 1, 0));
+  const prevMonth = prevLast.toISOString().slice(0, 7);
+  const mb51 = rows('MB51'); const mb52 = rows('MB52'); const previous = rows('Previous Ageing'); const master = rows('Plant Master');
+  const plant = new Map<string, RecordRow>(); master.forEach(r => plant.set(s(r['Plant']), r));
+  const previousGR = new Map<string, string>();
+  previous.forEach(r => { const d = iso(r['GR Date']); if (d && (!previousGR.has(key(r)) || d < (previousGR.get(key(r)) || ''))) previousGR.set(key(r), d); });
+  const movements = new Map<string, RecordRow[]>();
+  mb51.forEach(r => { const k = key(r); const a = movements.get(k) || []; a.push(r); movements.set(k, a); });
+  const adjusted: RecordRow[] = []; const audit: (string | number)[][] = [];
+  const existing = new Set(mb52.map(key));
+  for (const stock of mb52) {
+    const k = key(stock);
+    const backdated = (movements.get(k) || []).filter(r => iso(r['Posting Date']).slice(0, 7) === prevMonth && iso(r['Entry Date']).slice(0, 7) === reportMonth);
+    const types = new Set(backdated.map(r => s(r['Movement Type'])));
+    if (types.size === 1 && types.has('601')) { audit.push([k, 'EXCLUDE MB52', 'Backdated movement type 601 only']); continue; }
+    adjusted.push(stock);
+    if (types.size === 1 && types.has('101')) audit.push([k, 'KEEP MB52', '101 only; already in MB52, no duplicate appended']);
+    else if (types.has('101') && types.has('601')) audit.push([k, 'KEEP MB52', 'Mixed 101 and 601; no transfer']);
+  }
+  // A backdated 101-only material/batch missing from MB52 is appended using MB51 quantities.
+  for (const [k, all] of movements) {
+    if (existing.has(k)) continue;
+    const backdated = all.filter(r => iso(r['Posting Date']).slice(0, 7) === prevMonth && iso(r['Entry Date']).slice(0, 7) === reportMonth);
+    const types = new Set(backdated.map(r => s(r['Movement Type'])));
+    if (types.size !== 1 || !types.has('101')) continue;
+    const first = backdated[0];
+    const qty = backdated.reduce((sum, r) => sum + n(r['Quantity']), 0);
+    adjusted.push({'Material No':first['Material No'],'Plant':first['Plant'],'Material Description':first['Material Description'],'Storage Location':first['Storage Location'],'Batch No':first['Batch No'],'Base Unit':first['Unit'],'Unrestricted Qty':qty,'Currency':'INR','Value Unrestricted':0});
+    audit.push([k, 'APPEND MB51 TO MB52', 'Backdated 101 only; valuation unavailable, set to zero pending validation']);
+  }
+  const output: (string | number)[][] = [];
+  for (const r of adjusted) {
+    const k = key(r); const m = plant.get(s(r['Plant']));
+    const eligible = (movements.get(k) || []).filter(x => s(x['Movement Type']) === '101' && s(x['Purchase Order']).startsWith('4500')).map(x => iso(x['Posting Date'])).filter(x => x !== '').sort();
+    const gr = previousGR.get(k) || eligible[0] || '';
+    const days = gr ? Math.round((reportMs - Date.parse(gr + 'T00:00:00Z')) / 86400000) : -1;
+    const bucket = days < 0 ? 'GR DATE MISSING' : days <= 30 ? '0-30' : days <= 60 ? '31-60' : days <= 90 ? '61-90' : days <= 180 ? '91-180' : days <= 365 ? '181-365' : 'Over 365';
+    const qty = n(r['Unrestricted Qty']); const val = n(r['Value Unrestricted']);
+    output.push([s(m?.['Customer']) || 'UNMAPPED',s(m?.['Branch']) || 'UNMAPPED',s(m?.['Warehouse Name']) || 'UNMAPPED',s(r['Material No']),s(r['Material Description']),s(r['Batch No']),gr,s(r['Base Unit']),qty,1,qty,qty ? Math.round(val / qty * 100) / 100 : 0,val,days >= 0 ? days : '',bucket]);
+  }
+  function write(name: string, headers: string[], data: (string | number)[][]): void {
+    const old = workbook.getWorksheet(name); if (old) old.delete();
+    const sh = workbook.addWorksheet(name);
+    const matrix: (string | number)[][] = [headers, ...data];
+    sh.getRangeByIndexes(0, 0, matrix.length, headers.length).setValues(matrix);
+    const h = sh.getRangeByIndexes(0, 0, 1, headers.length);
+    h.getFormat().getFill().setColor('#167D79'); h.getFormat().getFont().setColor('#FFFFFF'); h.getFormat().getFont().setBold(true);
+    sh.getFreezePanes().freezeRows(1);
+    sh.getUsedRange().getFormat().autofitColumns();
+    sh.getRangeByIndexes(0, 0, matrix.length, headers.length).getFormat().setRowHeight(20);
+  }
+  write('Ageing Sheet',['Customer','Branch','Warehouse Name','Material No','Description','Batch No','GR Date','UoM','Quantity','Conv Factor','QTY in MT','Unit Price','Value','No. of Days','Age Bucket'],output);
+  const adjustedHeaders = ['Material No','Plant','Material Description','Storage Location','Batch No','Base Unit','Unrestricted Qty','Currency','Value Unrestricted'];
+  write('Adjusted MB52',adjustedHeaders,adjusted.map(r => adjustedHeaders.map(h => typeof r[h] === 'number' ? n(r[h]) : s(r[h]))));
+  write('Movement Audit',['Material + Batch','Action','Reason'],audit);
+  console.log(`Generated ${output.length} ageing rows; ${audit.length} movement audit records`);
+}
