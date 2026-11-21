@@ -1,45 +1,53 @@
 
 const dateSerial = (v: Cell | undefined): number => {
   if (typeof v === "number") {
+    if (!Number.isFinite(v)) {
+      throw new Error("Invalid Excel date serial");
+    }
     return Math.floor(v);
   }
 
-  const s = clean(v);
-  if (!s) throw new Error("Missing Net Due Date");
+  const s = String(v ?? "").trim();
+
+  if (!s) {
+    throw new Error("Missing Net Due Date");
+  }
+
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    return Math.floor(Number(s));
+  }
 
   let year: number;
   let month: number;
   let day: number;
 
-  // Format: DD/MM/YYYY or DD-MM-YYYY
-  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(s);
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(s);
 
-  // Format: YYYY-MM-DD
-  const ymd = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
-
-  if (dmy) {
+  if (iso) {
+    year = Number(iso[1]);
+    month = Number(iso[2]);
+    day = Number(iso[3]);
+  } else if (dmy) {
     day = Number(dmy[1]);
     month = Number(dmy[2]);
     year = Number(dmy[3]);
-  } else if (ymd) {
-    year = Number(ymd[1]);
-    month = Number(ymd[2]);
-    day = Number(ymd[3]);
   } else {
     throw new Error("Unsupported Net Due Date: " + s);
   }
 
-  const dt = new Date(Date.UTC(year, month - 1, day));
+  const utc = Date.UTC(year, month - 1, day);
+  const check = new Date(utc);
 
   if (
-    dt.getUTCFullYear() !== year ||
-    dt.getUTCMonth() + 1 !== month ||
-    dt.getUTCDate() !== day
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
   ) {
     throw new Error("Invalid Net Due Date: " + s);
   }
 
   return Math.floor(
-    (dt.getTime() - Date.UTC(1899, 11, 30)) / 86400000
+    (utc - Date.UTC(1899, 11, 30)) / 86400000
   );
 };
