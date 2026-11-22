@@ -1,104 +1,219 @@
 
-function generateFormattedReport(
+function generatePremiumReport(
   workbook: ExcelScript.Workbook,
   sheetName: string,
   reportName: string,
   reportDate: string,
+  headers: string[],
   output: (string | number)[][]
 ): void {
 
-  if (output.length === 0) {
-    throw new Error("Report output is empty");
-  }
-
-  const columnCount = Math.max(
-    ...output.map(row => row.length)
-  );
-
-  const totalColumns = Math.max(columnCount, 3);
-
-  // Metal One-inspired colors (proposed)
-  const RED = "#B82030";
-  const DARK = "#252525";
+  // 1. Premium corporate palette
+  const NAVY = "#252D38";
+  const BURGUNDY = "#B52B40";
   const WHITE = "#FFFFFF";
+  const LIGHT = "#F3F5F8";
+  const TEXT = "#35404B";
+  const MUTED = "#718096";
 
-  // Create or reuse report worksheet
-  let sheet = workbook.getWorksheet(sheetName);
-
-  if (!sheet) {
-    sheet = workbook.addWorksheet(sheetName);
+  if (headers.length === 0) {
+    throw new Error("Headers cannot be empty.");
   }
 
-  // Clear previous report, including old formatting
-  const existing = sheet.getUsedRange();
-  if (existing) {
-    existing.clear(ExcelScript.ClearApplyTo.all);
-  }
+  const cols = headers.length;
+  const width = Math.max(cols, 5);
 
-  // Add company name
+  // 2. Recreate the generated report sheet
+  const oldSheet = workbook.getWorksheet(sheetName);
+  if (oldSheet) oldSheet.delete();
+
+  const sheet = workbook.addWorksheet(sheetName);
+  sheet.setShowGridLines(false);
+
+  // 3. Combine headers and report data
+  const finalOutput: (string | number)[][] = [
+    [...headers],
+    ...output.map(row => {
+      if (row.length > cols) {
+        throw new Error("Output row exceeds header count.");
+      }
+      return [
+        ...row,
+        ...Array<string>(cols - row.length).fill("")
+      ];
+    })
+  ];
+
+  // 4. Corporate banner: rows 1-4
+  const banner = sheet.getRangeByIndexes(
+    0, 0, 4, width
+  );
+  banner.getFormat().getFill().setColor(NAVY);
+
   const company = sheet.getRangeByIndexes(
-    0, 0, 1, totalColumns
+    0, 0, 1, width
   );
-
   company.merge();
-  company.setValue("METAL ONE CORPORATION");
-  company.getFormat().getFont().setBold(true);
-  company.getFormat().getFont().setSize(18);
-  company.getFormat().getFont().setColor(DARK);
+  company.setValue("M E T A L   O N E  |  CORPORATION");
 
-  // Add report name
+  const companyFont = company.getFormat().getFont();
+  companyFont.setName("Aptos");
+  companyFont.setSize(12);
+  companyFont.setBold(true);
+  companyFont.setColor(WHITE);
+
+  company.getFormat().setRowHeight(30);
+
+  // 5. Large italic report title
   const title = sheet.getRangeByIndexes(
-    1, 0, 1, totalColumns
+    1, 0, 2, width
   );
-
   title.merge();
   title.setValue(reportName);
-  title.getFormat().getFont().setBold(true);
-  title.getFormat().getFont().setSize(15);
-  title.getFormat().getFont().setColor(RED);
 
-  // Add report date
-  sheet.getCell(2, 0)
-    .setValue("Report Date: " + reportDate);
+  const titleFont = title.getFormat().getFont();
+  titleFont.setName("Georgia");
+  titleFont.setSize(22);
+  titleFont.setBold(true);
+  titleFont.setItalic(true);
+  titleFont.setColor(WHITE);
 
-  // Add accent bar
+  sheet.getRange("2:3")
+    .getFormat().setRowHeight(28);
+
+  // 6. Burgundy accent separator
   sheet.getRangeByIndexes(
-    4, 0, 1, totalColumns
-  ).getFormat().getFill().setColor(RED);
+    4, 0, 1, width
+  ).getFormat().getFill().setColor(BURGUNDY);
 
-  // Normalize row lengths for Excel setValues()
-  const normalizedOutput = output.map(row => {
-    const newRow = [...row];
+  sheet.getRange("5:5")
+    .getFormat().setRowHeight(7);
 
-    while (newRow.length < columnCount) {
-      newRow.push("");
-    }
+  // 7. Reporting date panel
+  const datePanel = sheet.getRangeByIndexes(
+    5, 0, 2, width
+  );
+  datePanel.getFormat().getFill().setColor(LIGHT);
 
-    return newRow;
-  });
+  const dateLabel = sheet.getRangeByIndexes(
+    5, 0, 1, width
+  );
+  dateLabel.merge();
+  dateLabel.setValue("REPORTING DATE");
 
-  // Write output starting at Excel row 6
+  const labelFont = dateLabel.getFormat().getFont();
+  labelFont.setSize(9);
+  labelFont.setBold(true);
+  labelFont.setColor(MUTED);
+
+  const dateValue = sheet.getRangeByIndexes(
+    6, 0, 1, width
+  );
+  dateValue.merge();
+  dateValue.setValue(reportDate);
+
+  const dateFont = dateValue.getFormat().getFont();
+  dateFont.setName("Georgia");
+  dateFont.setSize(13);
+  dateFont.setItalic(true);
+  dateFont.setColor(TEXT);
+
+  // 8. White spacer row
+  sheet.getRange("8:8")
+    .getFormat().setRowHeight(18);
+
+  // 9. Section heading
+  const section = sheet.getRangeByIndexes(
+    8, 0, 1, width
+  );
+  section.merge();
+  section.setValue("REPORT DETAILS");
+
+  const sectionFont = section.getFormat().getFont();
+  sectionFont.setBold(true);
+  sectionFont.setSize(11);
+  sectionFont.setColor(BURGUNDY);
+
+  section.getFormat().setRowHeight(28);
+
+  // 10. Write report from Excel row 10
+  const startRow = 9;
+
   const reportRange = sheet.getRangeByIndexes(
-    5,
-    0,
-    normalizedOutput.length,
-    columnCount
+    startRow, 0, finalOutput.length, cols
+  );
+  reportRange.setValues(finalOutput);
+
+  const baseFont = reportRange.getFormat().getFont();
+  baseFont.setName("Aptos");
+  baseFont.setSize(10);
+  baseFont.setColor(TEXT);
+
+  // 11. Dark table header
+  const headerRange = sheet.getRangeByIndexes(
+    startRow, 0, 1, cols
   );
 
-  reportRange.setValues(normalizedOutput);
+  headerRange.getFormat().getFill().setColor(NAVY);
+  headerRange.getFormat().setRowHeight(36);
 
-  // Format column headers (first row of output)
-  const header = sheet.getRangeByIndexes(
-    5, 0, 1, columnCount
-  );
+  const headerFont = headerRange.getFormat().getFont();
+  headerFont.setBold(true);
+  headerFont.setColor(WHITE);
+  headerFont.setSize(11);
 
-  header.getFormat().getFill().setColor(DARK);
-  header.getFormat().getFont().setColor(WHITE);
-  header.getFormat().getFont().setBold(true);
+  // 12. Zebra striping and row spacing
+  for (let i = 1; i < finalOutput.length; i++) {
 
-  // Auto-adjust columns
+    const row = sheet.getRangeByIndexes(
+      startRow + i, 0, 1, cols
+    );
+
+    row.getFormat().setRowHeight(25);
+
+    row.getFormat().getFill().setColor(
+      i % 2 === 0 ? LIGHT : WHITE
+    );
+  }
+
+  // 13. Add a bottom border to header
+  headerRange.getFormat()
+    .getRangeBorder(ExcelScript.BorderIndex.edgeBottom)
+    .setColor(BURGUNDY);
+
+  // 14. Set column widths
   reportRange.getFormat().autofitColumns();
 
-  // Freeze report headers
-  sheet.getFreezePanes().freezeRows(6);
+  for (let c = 0; c < cols; c++) {
+    const col = sheet.getRangeByIndexes(
+      0, c, 1, 1
+    );
+
+    if (col.getFormat().getColumnWidth() < 110) {
+      col.getFormat().setColumnWidth(110);
+    }
+  }
+
+  // 15. Footer
+  const footerRow = startRow + finalOutput.length + 1;
+
+  const footer = sheet.getRangeByIndexes(
+    footerRow, 0, 1, width
+  );
+  footer.merge();
+
+  footer.setValue(
+    "METAL ONE CORPORATION  |  INTERNAL REPORT  |  " +
+    output.length + " RECORDS"
+  );
+
+  const footerFont = footer.getFormat().getFont();
+  footerFont.setSize(9);
+  footerFont.setItalic(true);
+  footerFont.setColor(MUTED);
+
+  // 16. Freeze the header section
+  sheet.getFreezePanes().freezeRows(10);
+
+  console.log("Premium report created: " + sheetName);
 }
