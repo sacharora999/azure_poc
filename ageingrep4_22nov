@@ -1,0 +1,276 @@
+
+/**
+ * Material Ageing Report — Office Scripts
+ *
+ * Inputs: MB51, MB52, Previous Ageing, Plant Master.
+ * Outputs: Ageing Sheet, Adjusted MB52, Movement Audit.
+ *
+ * The report is rebuilt in Ageing Sheet, Adjusted MB52 and Movement Audit.
+ * Assumptions are documented in README.md; review before production use.
+ */
+function main(workbook: ExcelScript.Workbook, reportDate: string = '2026-10-31') {
+    // 1. Define cell/record types and verify all four input sheets exist.
+    type Cell = string | number | boolean;
+    type RecordRow = { [key: string]: Cell };
+    const required = ['MB51', 'MB52', 'Previous Ageing', 'Plant Master'];
+    for (const name of required) {
+        if (!workbook.getWorksheet(name)) throw new Error(`Missing worksheet: ${name}`);
+    }
+
+    // 2. Read a worksheet as records keyed by the first row's column headers.
+    function rows(name: string): RecordRow[] {
+        const sheet = workbook.getWorksheet(name);
+        const used = sheet.getUsedRange();
+        if (!used) throw new Error(`Empty worksheet: ${name}`);
+        const values = used.getValues() as Cell[][];
+        const headers = values[0].map(v => String(v).trim());
+        return values.slice(1)
+            .filter(r => r.some(v => String(v ?? '').trim() !== ''))
+            .map(r => {
+                const obj: RecordRow = {};
+                headers.forEach((h, i) => obj[h] = r[i] ?? '');
+                return obj;
+            });
+    }
+
+    // 3. Normalize values and build a material/batch composite lookup key.
+    const s = (v: Cell | undefined): string => String(v ?? '').trim();
+    const n = (v: Cell | undefined): number => {
+        const x = Number(String(v ?? '').replace(/,/g, ''));
+        return Number.isFinite(x) ? x : 0;
+    };
+    const key = (r: RecordRow): string => `${s(r['Material'])}|${s(r['Batch'])}`;
+
+    // 4. Convert Excel serial dates, ISO dates and DD-Mon-YY dates to ISO YYYY-MM-DD.
+    function iso(v: Cell | undefined): string {
+        if (typeof v === 'number') {
+            const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000);
+            return d.toISOString().slice(0, 10);
+        }
+        const t = s(v);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+        if (/^\d{2}-[A-Za-z]{3}-\d{2,4}$/.test(t)) {
+            const parts = t.split('-');
+            const mon = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(parts[1].toLowerCase());
+            const yr = Number(parts[2]);
+            if (mon >= 0) return `${yr < 100 ? 2000 + yr : yr}-${String(mon + 1).padStart(2, '0')}-${parts[0]}`;
+        }
+        return '';
+    }
+
+    // 5. Validate the reporting date and determine the preceding calendar month.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw new Error('reportDate must be YYYY-MM-DD');
+    const reportMs = Date.parse(reportDate + 'T00:00:00Z');
+    if (!Number.isFinite(reportMs)) throw new Error('Invalid reportDate');
+    const reportMonth = reportDate.slice(0, 7);
+    const prevLast = new Date(Date.UTC(Number(reportDate.slice(0, 4)), Number(reportDate.slice(5, 7)) - 1, 0));
+    const prevMonth = prevLast.toISOString().slice(0, 7);
+
+    // 6. Load input rows and create lookup maps for plant, batch and prior GR dates.
+    const mb51 = rows('MB51');
+    const mb52 = rows('MB52');
+    const previous = rows('Previous Ageing');
+    const master = rows('Plant Master');
+    const plant = new Map<string, RecordRow>();
+    master.forEach(r => plant.set(s(r['Plant']), r));
+    const batch = new Map<string, RecordRow>();
+    master.forEach(r => batch.set(s(r['Batch']), r));
+    const previousGR = new Map<string, string>();
+    previous.forEach(r => {
+        const d = iso(r['GR Date']);
+        if (d && (!previousGR.has(key(r)) || d < (previousGR.get(key(r)) || ''))) {
+            previousGR.set(key(r), d);
+        }
+    });
+
+    // 7. Group all MB51 material movements by material and batch.
+    const movements = new Map<string, RecordRow[]>();
+    mb51.forEach(r => {
+        const k = key(r);
+        const a = movements.get(k) || [];
+        a.push(r);
+        movements.set(k, a);
+    });
+
+    // 8. Adjust MB52 for backdated 601-only movements; record every decision in the audit.
+    const adjusted: RecordRow[] = [];
+    const audit: (string | number)[][] = [];
+    const existing = new Set(mb52.map(r => key(r)));
+    for (const stock of mb52) {
+        const k = key(stock);
+        const backdated = (movements.get(k) || []).filter(r =>
+            iso(r['Posting Date']).slice(0, 7) === prevMonth &&
+            iso(r['Entry Date']).slice(0, 7) === reportMonth
+        );
+        const types = new Set(backdated.map(r => s(r['Movement Type'])));
+        if (types.size === 1 && types.has('601')) {
+            const originalValue = n(stock['Value Unrestricted']);
+            const deduction = backdated.reduce(
+                (sum, r) => sum + Math.abs(n(r['Amt.in Loc.Cur.'])), 0
+            );
+            const updatedValue = originalValue - deduction;
+            const updatedStock: RecordRow = {
+                ...stock,
+                'Value Unrestricted': updatedValue
+            };
+            adjusted.push(updatedStock);
+            audit.push([
+                k,
+                'Deduct 601 from MB52',
+                `Original: ${originalValue}, Deduction: ${deduction}, Final: ${updatedValue}`
+            ]);
+            continue;
+        }
+        adjusted.push(stock);
+        if (types.size === 1 && types.has('101')) {
+            audit.push([k, 'KEEP MB52', '101 only; already in MB52, no duplicate appended']);
+        } else if (types.has('101') && types.has('601')) {
+            audit.push([k, 'KEEP MB52', 'Mixed 101 and 601; no transfer']);
+        }
+    }
+
+    // 9. Preserve the original disabled implementation as comments.
+    // A backdated 101-only material/batch missing from MB52 is appended using MB51.
+    // for (const [k, all] of movements) {
+    //     if (existing.has(k)) continue;
+    //     const backdated = all.filter(r => iso(r['Posting Date']).slice(0, 7) === prevMonth && iso(r['Entry Date']).slice(0, 7) === reportMonth);
+    //     const types = new Set(backdated.map(r => r['Movement Type']));
+    //     if (types.size !== 1 || !types.has('101')) continue;
+    //     const first = backdated[0];
+    //     const qty = backdated.reduce((sum, r) => sum + n(r['Quantity']), 0);
+    //     adjusted.push({ 'Material': first['Material'], 'Plant': first['Plant'], 'Material Description': first['Material Description'], 'Storage Location': first['Storage Location'] });
+    //     audit.push([k, 'APPEND MB51 TO MB52', 'Backdated 101 only; valuation unavailable, set to zero pending validation']);
+    // }
+
+    // 10. Append missing backdated 101-only movements individually, retaining their amounts.
+    for (const [k, all] of Array.from(movements.entries())) {
+        const backdated = all.filter(r =>
+            iso(r['Posting Date']).slice(0, 7) === prevMonth &&
+            iso(r['Entry Date']).slice(0, 7) === reportMonth
+        );
+        const types = new Set(backdated.map(r => r['Movement Type']));
+        if (types.size !== 1 || !types.has('101')) continue;
+        for (const r of backdated) {
+            adjusted.push({
+                'Material': r['Material'],
+                'Plant': r['Plant'],
+                'Material Description': r['Material Description'],
+                'Storage Location': r['Storage Location'],
+                'Batch': r['Batch'],
+                'Base Unit': r['Unit'],
+                'Unrestricted Qty': n(r['Quantity']),
+                'Currency': 'INR',
+                'Value Unrestricted': n(r['Amt.in Loc.Cur.'])
+            });
+        }
+        audit.push([k, 'Append MB51 to MB52', `Added ${backdated.length} backdated 101 rows`]);
+    }
+
+    // 11. Build the ageing rows, preserving the GR-date precedence and ageing bands.
+    const output: (string | number)[][] = [];
+    for (const r of adjusted) {
+        const k = key(r);
+        const m = plant.get(s(r['Plant']));
+
+        // Backdated 101 receipts from the prior posting month entered this month.
+        const backdated101 = (movements.get(k) || [])
+            .filter(x => s(x['Movement Type']) === '101' &&
+                iso(x['Posting Date']).slice(0, 7) === prevMonth &&
+                iso(x['Entry Date']).slice(0, 7) === reportMonth)
+            .map(x => ({
+                postingDate: iso(x['Posting Date']),
+                quantity: n(x['Quantity']),
+                bun: n(x['Base Unit of Measure'])
+            }))
+            .filter(x => x.postingDate !== '')
+            .sort((a, b) => a.postingDate.localeCompare(b.postingDate));
+
+        // Alternative GR-date source: movement 101 with a purchase order starting 4500.
+        const eligible = (movements.get(k) || [])
+            .filter(x => s(x['Movement Type']) === '101' && s(x['Purchase Order']).startsWith('4500'))
+            .map(x => iso(x['Posting Date']))
+            .filter(x => x !== '')
+            .sort();
+
+        // Previous ageing takes precedence, followed by backdated 101, then eligible PO.
+        const gr = previousGR.get(k) || backdated101[0]?.postingDate || eligible[0] || '';
+        const days = gr ? Math.round((reportMs - Date.parse(gr + 'T00:00:00Z')) / 86400000) : -1;
+        const bucket = days < 0 ? 'GR DATE MISSING'
+            : days <= 30 ? '0-30'
+            : days <= 60 ? '31-60'
+            : days <= 90 ? '61-90'
+            : days <= 180 ? '91-180'
+            : days <= 365 ? '181-365'
+            : 'over 365';
+
+        // Calculate quantity, value, unit of measure and derived unit price.
+        const qty = n(r['Unrestricted']) || backdated101[0]?.quantity || 0;
+        const val = n(r['Value Unrestricted']);
+        const baseUnitofMeasure = s(r['BUn']) || backdated101[0]?.bun || '';
+        output.push([
+            s(m?.['Plant']) || 'UNMAPPED',
+            s(m?.['Customer']) || 'UNMAPPED',
+            s(m?.['Branch']) || 'UNMAPPED',
+            s(m?.['Warehouse Name']) || 'UNMAPPED',
+            s(r['Material']),
+            s(r['Material Description']),
+            s(r['Batch']),
+            gr,
+            baseUnitofMeasure,
+            qty,
+            1,
+            qty,
+            qty ? Math.round(val / qty * 100) / 100 : 0,
+            val,
+            days >= 0 ? days : '',
+            bucket
+        ]);
+    }
+
+    // 12. Replace each output sheet and apply identical header and row formatting.
+    function write(name: string, headers: string[], data: (string | number)[][]): void {
+        const old = workbook.getWorksheet(name);
+        if (old) old.delete();
+        const sh = workbook.addWorksheet(name);
+        const matrix: (string | number)[][] = [headers, ...data];
+        sh.getRangeByIndexes(0, 0, matrix.length, headers.length).setValues(matrix);
+        const h = sh.getRangeByIndexes(0, 0, 1, headers.length);
+        h.getFormat().getFill().setColor('#167D79');
+        h.getFormat().getFont().setColor('#FFFFFF');
+        h.getFormat().getFont().setBold(true);
+        sh.getFreezePanes().freezeRows(1);
+        sh.getUsedRange().getFormat().autofitColumns();
+        sh.getRangeByIndexes(0, 0, matrix.length, headers.length).getFormat().setRowHeight(20);
+    }
+
+    // 13. Write the ageing report with the original 16 headers and their order.
+    write('Ageing Sheet', [
+        'Plant', 'Customer', 'Branch', 'Warehouse Name', 'Material', 'Description',
+        'Batch', 'GR Date', 'UoM', 'Quantity', 'Conv Factor', 'QTY in MT',
+        'Unit Price', 'Value', 'No. of Days', 'Age Bucket'
+    ], output);
+
+    // 14. Export adjusted stock in the original nine-column layout.
+    const adjustedHeaders = [
+        'Material', 'Plant', 'Material Description', 'Storage Location',
+        'Batch', 'Base Unit', 'Unrestricted Qty', 'Currency', 'Value Unrestricted'
+    ];
+    const adjustedOutput: (string | number)[][] = adjusted.map(
+        (r: RecordRow): (string | number)[] => [
+            s(r['Material']),
+            s(r['Plant']),
+            s(r['Material Description']),
+            s(r['Loca']),
+            s(r['Batch']),
+            s(r['BUn']),
+            s(r['Unrestricted']),
+            s(r['Crcy']),
+            s(r['Value Unrestricted'])
+        ]
+    );
+    write('Adjusted MB52', adjustedHeaders, adjustedOutput);
+
+    // 15. Write audit records and log output counts.
+    write('Movement Audit', ['Material + Batch', 'Action', 'Reason'], audit);
+    console.log(`Generated ${output.length} ageing rows; ${audit.length} movement audit records`);
+}
