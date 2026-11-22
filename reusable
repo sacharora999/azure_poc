@@ -1,0 +1,104 @@
+
+function generateFormattedReport(
+  workbook: ExcelScript.Workbook,
+  sheetName: string,
+  reportName: string,
+  reportDate: string,
+  output: (string | number)[][]
+): void {
+
+  if (output.length === 0) {
+    throw new Error("Report output is empty");
+  }
+
+  const columnCount = Math.max(
+    ...output.map(row => row.length)
+  );
+
+  const totalColumns = Math.max(columnCount, 3);
+
+  // Metal One-inspired colors (proposed)
+  const RED = "#B82030";
+  const DARK = "#252525";
+  const WHITE = "#FFFFFF";
+
+  // Create or reuse report worksheet
+  let sheet = workbook.getWorksheet(sheetName);
+
+  if (!sheet) {
+    sheet = workbook.addWorksheet(sheetName);
+  }
+
+  // Clear previous report, including old formatting
+  const existing = sheet.getUsedRange();
+  if (existing) {
+    existing.clear(ExcelScript.ClearApplyTo.all);
+  }
+
+  // Add company name
+  const company = sheet.getRangeByIndexes(
+    0, 0, 1, totalColumns
+  );
+
+  company.merge();
+  company.setValue("METAL ONE CORPORATION");
+  company.getFormat().getFont().setBold(true);
+  company.getFormat().getFont().setSize(18);
+  company.getFormat().getFont().setColor(DARK);
+
+  // Add report name
+  const title = sheet.getRangeByIndexes(
+    1, 0, 1, totalColumns
+  );
+
+  title.merge();
+  title.setValue(reportName);
+  title.getFormat().getFont().setBold(true);
+  title.getFormat().getFont().setSize(15);
+  title.getFormat().getFont().setColor(RED);
+
+  // Add report date
+  sheet.getCell(2, 0)
+    .setValue("Report Date: " + reportDate);
+
+  // Add accent bar
+  sheet.getRangeByIndexes(
+    4, 0, 1, totalColumns
+  ).getFormat().getFill().setColor(RED);
+
+  // Normalize row lengths for Excel setValues()
+  const normalizedOutput = output.map(row => {
+    const newRow = [...row];
+
+    while (newRow.length < columnCount) {
+      newRow.push("");
+    }
+
+    return newRow;
+  });
+
+  // Write output starting at Excel row 6
+  const reportRange = sheet.getRangeByIndexes(
+    5,
+    0,
+    normalizedOutput.length,
+    columnCount
+  );
+
+  reportRange.setValues(normalizedOutput);
+
+  // Format column headers (first row of output)
+  const header = sheet.getRangeByIndexes(
+    5, 0, 1, columnCount
+  );
+
+  header.getFormat().getFill().setColor(DARK);
+  header.getFormat().getFont().setColor(WHITE);
+  header.getFormat().getFont().setBold(true);
+
+  // Auto-adjust columns
+  reportRange.getFormat().autofitColumns();
+
+  // Freeze report headers
+  sheet.getFreezePanes().freezeRows(6);
+}
